@@ -1,0 +1,16 @@
+server:
+  host: "0.0.0.0"
+  port: 8080
+
+health_check:
+  enabled: true
+  interval: 30s
+  timeout: 5s
+  healthy_count: 2
+
+strategy: "fastest"  # fastest | random | first
+
+sublist_file: "sublist.md"
+
+auth:
+  api_key: ""  # optional, leave empty for no auth
