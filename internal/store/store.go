@@ -84,6 +84,13 @@ func (s *Store) RecordHealth(endpointID string, info HealthInfo) {
 	s.health[endpointID] = info
 }
 
+func (s *Store) GetHealth(endpointID string) (HealthInfo, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	info, ok := s.health[endpointID]
+	return info, ok
+}
+
 // GetBestEndpoint returns the best (healthy, lowest latency) endpoint for a subId.
 // If all are down, returns the most recently checked.
 func (s *Store) GetBestEndpoint(subId string) *Endpoint {
