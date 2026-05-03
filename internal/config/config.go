@@ -13,6 +13,8 @@ type Config struct {
 	Strategy    string            `yaml:"strategy"`
 	SublistFile string            `yaml:"sublist_file"`
 	Auth        AuthConfig        `yaml:"auth"`
+	TLS         TLSConfig         `yaml:"tls"`
+	RateLimit   RateLimitConfig   `yaml:"rate_limit"`
 }
 
 type ServerConfig struct {
@@ -25,10 +27,22 @@ type HealthCheckConfig struct {
 	Interval     time.Duration `yaml:"interval"`
 	Timeout      time.Duration `yaml:"timeout"`
 	HealthyCount int           `yaml:"healthy_count"`
+	PersistPath  string        `yaml:"persist_path"`
 }
 
 type AuthConfig struct {
 	APIKey string `yaml:"api_key"`
+}
+
+type TLSConfig struct {
+	CertFile string `yaml:"cert_file"`
+	KeyFile  string `yaml:"key_file"`
+}
+
+type RateLimitConfig struct {
+	Enabled  bool          `yaml:"enabled"`
+	MaxReqs  int           `yaml:"max_reqs"`
+	Window   time.Duration `yaml:"window"`
 }
 
 func DefaultConfig() Config {
@@ -44,6 +58,11 @@ func DefaultConfig() Config {
 			HealthyCount: 2,
 		},
 		Strategy: "fastest",
+		RateLimit: RateLimitConfig{
+			Enabled: false,
+			MaxReqs: 100,
+			Window:  time.Minute,
+		},
 	}
 }
 

@@ -12,8 +12,11 @@ import (
 	"github.com/makashov73/xray-sub-rotation-service/internal/config"
 	"github.com/makashov73/xray-sub-rotation-service/internal/handler"
 	"github.com/makashov73/xray-sub-rotation-service/internal/proxy"
+	"github.com/makashov73/xray-sub-rotation-service/internal/ratelimit"
+	"github.com/makashov73/xray-sub-rotation-service/internal/reload"
 	"github.com/makashov73/xray-sub-rotation-service/internal/store"
 	"github.com/makashov73/xray-sub-rotation-service/internal/sublist"
+	"github.com/makashov73/xray-sub-rotation-service/internal/tls"
 )
 
 func main() {
@@ -44,6 +47,15 @@ func main() {
 
 	slog.Info("Loaded subscription list", "endpoints", len(entries))
 
+	// Load persisted health state
+	if healthPath := cfg.HealthCheck.PersistPath; healthPath != "" {
+		if err := s.LoadFromDisk(healthPath); err != nil {
+			slog.Warn("Failed to load persisted health (will start fresh)", "error", err)
+		} else {
+			slog.Info("Loaded persisted health data")
+		}
+	}
+
 	// Initialize proxy
 	p := proxy.New(s, cfg.Strategy, cfg.HealthCheck.HealthyCount, cfg.HealthCheck.Timeout)
 
@@ -55,8 +67,15 @@ func main() {
 		slog.Info("Health checker started", "interval", cfg.HealthCheck.Interval)
 	}
 
+	// Initialize rate limiter
+	var rateLimiter *ratelimit.SlidingWindow
+	if cfg.RateLimit.Enabled {
+		rateLimiter = ratelimit.NewSlidingWindow(cfg.RateLimit.MaxReqs, cfg.RateLimit.Window)
+		slog.Info("Rate limiting enabled", "max_reqs", cfg.RateLimit.MaxReqs, "window", cfg.RateLimit.Window)
+	}
+
 	// Initialize handler and register routes
-	h := handler.New(s, p)
+	h := handler.New(s, p, rateLimiter)
 	mux := http.NewServeMux()
 	h.RegisterRoutes(mux)
 
@@ -69,9 +88,46 @@ func main() {
 		Handler: mux,
 	}
 
+	if cfg.TLS.CertFile != "" && cfg.TLS.KeyFile != "" {
+		if err := tls.LoadAndVerify(cfg.TLS.CertFile, cfg.TLS.KeyFile); err != nil {
+			slog.Error("Failed to verify TLS certificates", "error", err)
+			os.Exit(1)
+		}
+		slog.Info("Starting HTTPS server", "addr", addr)
+		go func() {
+			if err := server.ListenAndServeTLS(cfg.TLS.CertFile, cfg.TLS.KeyFile); err != nil && err != http.ErrServerClosed {
+				slog.Error("HTTPS server error", "error", err)
+			}
+		}()
+	} else {
+		slog.Info("Starting HTTP server", "addr", addr)
+		go func() {
+			if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				slog.Error("HTTP server error", "error", err)
+			}
+		}()
+	}
+
+	// SIGHUP for config reload
+	slog.Info("Listening for SIGHUP for config reload")
+	sighup := make(chan os.Signal, 1)
+	signal.Notify(sighup, syscall.SIGHUP)
 	go func() {
-		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			slog.Error("Server error", "error", err)
+		for range sighup {
+			slog.Info("Received SIGHUP, reloading config...")
+			newCfg, err := reload.ReloadConfig(cfgPath)
+			if err != nil {
+				slog.Error("Failed to reload config", "error", err)
+				continue
+			}
+			entries, err := reload.ReloadEndpoints(newCfg.SublistFile)
+			if err != nil {
+				slog.Error("Failed to reload sublist", "error", err)
+				continue
+			}
+			s.Reload(entries)
+			cfg = newCfg
+			slog.Info("Config reloaded successfully")
 		}
 	}()
 
@@ -85,4 +141,11 @@ func main() {
 
 	slog.Info("Shutting down server")
 	server.Shutdown(context.Background())
+
+	// Persist health state on shutdown
+	if healthPath := cfg.HealthCheck.PersistPath; healthPath != "" {
+		if err := s.Persist(healthPath); err != nil {
+			slog.Error("Failed to persist health", "error", err)
+		}
+	}
 }

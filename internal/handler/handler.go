@@ -7,29 +7,49 @@ import (
 	"time"
 
 	"github.com/makashov73/xray-sub-rotation-service/internal/proxy"
+	"github.com/makashov73/xray-sub-rotation-service/internal/ratelimit"
 	"github.com/makashov73/xray-sub-rotation-service/internal/store"
 )
 
 // Handler handles HTTP requests for subscription routing.
 type Handler struct {
-	store   *store.Store
-	proxy   *proxy.Proxy
-	fetcher *http.Client
+	store       *store.Store
+	proxy       *proxy.Proxy
+	fetcher     *http.Client
+	rateLimiter *ratelimit.SlidingWindow
 }
 
 // New creates a new Handler.
-func New(s *store.Store, p *proxy.Proxy) *Handler {
+func New(s *store.Store, p *proxy.Proxy, rl *ratelimit.SlidingWindow) *Handler {
 	return &Handler{
-		store:   s,
-		proxy:   p,
-		fetcher: &http.Client{Timeout: 30 * time.Second},
+		store:       s,
+		proxy:       p,
+		fetcher:     &http.Client{Timeout: 30 * time.Second},
+		rateLimiter: rl,
 	}
 }
 
 // RegisterRoutes registers all HTTP routes.
 func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("/health", h.healthHandler)
-	mux.HandleFunc("/subrouter/", h.subscriptionHandler)
+	// Protect routes with rate limiter if configured
+	var protected http.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/health" || r.URL.Path == "/health/" {
+			h.healthHandler(w, r)
+			return
+		}
+		if strings.HasPrefix(r.URL.Path, "/subrouter/") {
+			h.subscriptionHandler(w, r)
+			return
+		}
+		http.NotFound(w, r)
+	})
+
+	if h.rateLimiter != nil {
+		protected = h.rateLimiter.Limit(protected)
+	}
+
+	mux.Handle("/health", protected)
+	mux.Handle("/subrouter/", protected)
 }
 
 // ServeHTTP implements http.Handler for the subscription handler.

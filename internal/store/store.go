@@ -1,8 +1,12 @@
 package store
 
 import (
+	"encoding/json"
+	"os"
 	"sync"
 	"time"
+
+	"github.com/makashov73/xray-sub-rotation-service/internal/sublist"
 )
 
 // Endpoint represents a single 3x-ui subscription endpoint.
@@ -91,6 +95,21 @@ func (s *Store) GetHealth(endpointID string) (HealthInfo, bool) {
 	return info, ok
 }
 
+// Reload clears current endpoints and adds new ones.
+// This is used during SIGHUP config reload.
+func (s *Store) Reload(entries []sublist.Entry) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.endpoints = make(map[string]Endpoint)
+	s.subIdToEndpoints = make(map[string][]string)
+	s.health = make(map[string]HealthInfo)
+
+	for _, e := range entries {
+		s.AddEndpoint(e.URL, e.SubId, e.Name)
+	}
+}
+
 // GetBestEndpoint returns the best (healthy, lowest latency) endpoint for a subId.
 // If all are down, returns the most recently checked.
 func (s *Store) GetBestEndpoint(subId string) *Endpoint {
@@ -134,4 +153,39 @@ func (s *Store) GetBestEndpoint(subId string) *Endpoint {
 	}
 
 	return best
+}
+
+// Persist writes the health state to a JSON file.
+func (s *Store) Persist(path string) error {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	data := make(map[string]HealthInfo, len(s.health))
+	for id, info := range s.health {
+		data[id] = info
+	}
+	return os.WriteFile(path, func() []byte {
+		b, _ := json.Marshal(data)
+		return b
+	}(), 0644)
+}
+
+// LoadFromDisk reads health state from a JSON file.
+func (s *Store) LoadFromDisk(path string) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+
+	var healthMap map[string]HealthInfo
+	if err := json.Unmarshal(data, &healthMap); err != nil {
+		return err
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for id, info := range healthMap {
+		s.health[id] = info
+	}
+	return nil
 }

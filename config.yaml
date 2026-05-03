@@ -7,6 +7,7 @@ health_check:
   interval: 30s
   timeout: 5s
   healthy_count: 2
+  persist_path: "/var/lib/xray-sub-rotation/health.json"  # optional
 
 strategy: "fastest"  # fastest | random | first
 
@@ -14,3 +15,16 @@ sublist_file: "sublist.md"
 
 auth:
   api_key: ""  # optional, leave empty for no auth
+
+tls:
+  cert_file: ""  # path to cert.pem (empty = HTTP only)
+  key_file: ""   # path to key.pem
+  # For Let's Encrypt, use certbot or acme.sh externally:
+  # certbot certonly --webroot -w /path/to/webroot -d example.com
+  # Then point cert_file to /etc/letsencrypt/live/example.com/fullchain.pem
+  # and key_file to /etc/letsencrypt/live/example.com/privkey.pem
+
+rate_limit:
+  enabled: false  # set to true to enable
+  max_reqs: 100   # requests per window
+  window: 1m      # window duration
