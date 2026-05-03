@@ -1,4 +1,4 @@
-# xray-sub-rotation-service
+# xray-sub-rotation-service (test)
 
 A Go service that routes 3x-ui subscription requests across multiple 3x-ui instances, selecting the best-performing one based on health checks.
 
