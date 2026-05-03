@@ -1,0 +1,17 @@
+# Binaries
+xray-sub-rotation
+
+# Go build artifacts
+*.exe
+*.exe~
+*.test
+*.out
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*~
+
+# OS
+.DS_Store
