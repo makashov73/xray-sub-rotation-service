@@ -79,7 +79,7 @@ func (p *Proxy) checkEndpoint(ep store.Endpoint) {
 	}
 	defer resp.Body.Close()
 
-	healthy := resp.StatusCode >= 200 && resp.StatusCode < 400
+	healthy := resp.StatusCode >= 200 && resp.StatusCode < 300
 
 	p.store.RecordHealth(ep.ID, store.HealthInfo{
 		Healthy:     healthy,

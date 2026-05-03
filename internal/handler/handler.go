@@ -4,6 +4,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/makashov73/xray-sub-rotation-service/internal/proxy"
 	"github.com/makashov73/xray-sub-rotation-service/internal/store"
@@ -11,15 +12,17 @@ import (
 
 // Handler handles HTTP requests for subscription routing.
 type Handler struct {
-	store *store.Store
-	proxy *proxy.Proxy
+	store   *store.Store
+	proxy   *proxy.Proxy
+	fetcher *http.Client
 }
 
 // New creates a new Handler.
 func New(s *store.Store, p *proxy.Proxy) *Handler {
 	return &Handler{
-		store: s,
-		proxy: p,
+		store:   s,
+		proxy:   p,
+		fetcher: &http.Client{Timeout: 30 * time.Second},
 	}
 }
 
@@ -63,7 +66,7 @@ func (h *Handler) subscriptionHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Fetch subscription from the best 3x-ui endpoint
-	resp, err := http.Get(best.URL)
+	resp, err := h.fetcher.Get(best.URL)
 	if err != nil {
 		http.Error(w, "failed to fetch subscription", http.StatusBadGateway)
 		return
