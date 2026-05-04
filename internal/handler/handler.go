@@ -132,11 +132,17 @@ func (h *Handler) subscriptionHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Try to decode base64 content from 3x-ui
+	content := body
+	if decoded, err := base64DecodeIfApplicable(body); err == nil {
+		content = decoded
+	}
+
 	// Forward the response with size limit
 	w.Header().Set("Content-Type", resp.Header.Get("Content-Type"))
 	w.WriteHeader(resp.StatusCode)
 	store.RequestCounter().WithLabelValues(fmt.Sprintf("%d", resp.StatusCode), subId).Inc()
-	w.Write(ProcessSubscription(body))
+	w.Write(ProcessSubscription(content))
 }
 
 func (h *Handler) healthHandler(w http.ResponseWriter, r *http.Request) {
