@@ -71,6 +71,18 @@ The script:
 - Verifies downloaded binary against SHA-256 checksums
 - Installs to `~/.local/bin/` by default
 
+## Uninstall
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/makashov73/xray-sub-rotation-service/master/uninstall.sh | bash
+
+# Remove binary + config
+curl -fsSL https://raw.githubusercontent.com/makashov73/xray-sub-rotation-service/master/uninstall.sh | bash -s -- --with-config
+
+# Custom install directory
+curl -fsSL .../uninstall.sh | bash -s -- -d /usr/local/bin --with-config
+```
+
 ### Building from source
 
 ```bash
