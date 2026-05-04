@@ -10,11 +10,12 @@ on:
         description: 'Version tag (e.g., v1.0.0)'
         required: true
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
