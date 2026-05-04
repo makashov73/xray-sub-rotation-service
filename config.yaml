@@ -6,15 +6,11 @@ health_check:
   enabled: true
   interval: 30s
   timeout: 5s
-  healthy_count: 2  # deprecated — parsed but not used, kept for config compatibility
   persist_path: "/var/lib/xray-sub-rotation/health.json"  # optional
 
 strategy: "random"  # fastest | random | first
 
 sublist_file: "sublist.md"
-
-auth:
-  api_key: ""  # optional, leave empty for no auth
 
 tls:
   cert_file: ""  # path to cert.pem (empty = HTTP only)

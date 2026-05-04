@@ -35,3 +35,16 @@ xyz789 | https://xray2.example.com/sub/xyz789 | Server 2
 		t.Errorf("First Name = %q, want %q", entries[0].Name, "Server 1")
 	}
 }
+
+func TestParseInvalidURL(t *testing.T) {
+	dir := t.TempDir()
+	content := `abc | not-a-valid-url://[bad
+`
+	path := filepath.Join(dir, "sublist.md")
+	os.WriteFile(path, []byte(content), 0644)
+
+	_, err := Parse(path)
+	if err == nil {
+		t.Fatal("expected error for invalid URL")
+	}
+}

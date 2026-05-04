@@ -6,9 +6,11 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/makashov73/xray-sub-rotation-service/internal/sublist"
+	"github.com/prometheus/client_golang/prometheus"
 )
 
 // Endpoint represents a single 3x-ui subscription endpoint.
@@ -26,33 +28,68 @@ type HealthInfo struct {
 	LastChecked time.Time
 }
 
-// Store holds the list of 3x-ui endpoints and their health status.
-type Store struct {
-	mu               sync.RWMutex
+var (
+	endpointHealthGauge = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "xray_endpoint_health",
+			Help: "Health status of endpoints (1=healthy, 0=unhealthy)",
+		},
+		[]string{"subid", "name"},
+	)
+	requestCounter = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "xray_subscription_requests_total",
+			Help: "Total subscription requests by status",
+		},
+		[]string{"status", "subid"},
+	)
+)
+
+func init() {
+	prometheus.MustRegister(endpointHealthGauge, requestCounter)
+}
+
+// RequestCounter returns the request counter for use in handlers.
+func RequestCounter() *prometheus.CounterVec {
+	return requestCounter
+}
+
+type storeState struct {
+	mu sync.RWMutex
+
 	endpoints        map[string]Endpoint
 	subIdToEndpoints map[string][]string
 	health           map[string]HealthInfo
+	lastServed       map[string]string
 	strategy         string
-	lastServed       map[string]string // subId -> last served endpoint ID
+}
+
+// Store holds the list of 3x-ui endpoints and their health status.
+type Store struct {
+	state atomic.Pointer[storeState]
+	rng   *rand.Rand
 }
 
 func NewStore(strategy string) *Store {
-	return &Store{
+	s := &Store{
+		rng: rand.New(rand.NewSource(time.Now().UnixNano())),
+	}
+	s.state.Store(&storeState{
 		endpoints:        make(map[string]Endpoint),
 		subIdToEndpoints: make(map[string][]string),
 		health:           make(map[string]HealthInfo),
-		strategy:         strategy,
 		lastServed:       make(map[string]string),
-	}
+		strategy:         strategy,
+	})
+	return s
 }
 
 func (s *Store) AddEndpoint(url, subId, name string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.addEndpointLocked(url, subId, name)
-}
+	st := s.state.Load()
 
-func (s *Store) addEndpointLocked(url, subId, name string) {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+
 	id := url
 	e := Endpoint{
 		ID:    id,
@@ -60,74 +97,93 @@ func (s *Store) addEndpointLocked(url, subId, name string) {
 		SubId: subId,
 		Name:  name,
 	}
-	s.endpoints[id] = e
-	s.subIdToEndpoints[subId] = append(s.subIdToEndpoints[subId], id)
-	s.health[id] = HealthInfo{
+	st.endpoints[id] = e
+	st.subIdToEndpoints[subId] = append(st.subIdToEndpoints[subId], id)
+	st.health[id] = HealthInfo{
 		Healthy:     true,
 		LastChecked: time.Now(),
 	}
 }
 
 func (s *Store) GetEndpoints() []Endpoint {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	st := s.state.Load()
 
-	result := make([]Endpoint, 0, len(s.endpoints))
-	for _, e := range s.endpoints {
+	result := make([]Endpoint, 0, len(st.endpoints))
+	for _, e := range st.endpoints {
 		result = append(result, e)
 	}
 	return result
 }
 
 func (s *Store) GetUrlsForSubId(subId string) []string {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	st := s.state.Load()
 
-	ids := s.subIdToEndpoints[subId]
+	ids := st.subIdToEndpoints[subId]
 	urls := make([]string, 0, len(ids))
 	for _, id := range ids {
-		urls = append(urls, s.endpoints[id].URL)
+		urls = append(urls, st.endpoints[id].URL)
 	}
 	return urls
 }
 
 func (s *Store) RecordHealth(endpointID string, info HealthInfo) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.health[endpointID] = info
+	st := s.state.Load()
+
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	st.health[endpointID] = info
 }
 
 func (s *Store) GetHealth(endpointID string) (HealthInfo, bool) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	info, ok := s.health[endpointID]
+	st := s.state.Load()
+
+	info, ok := st.health[endpointID]
 	return info, ok
 }
 
 // Reload clears current endpoints and adds new ones.
 // This is used during SIGHUP config reload.
+// It builds a new storeState and atomically swaps it, so concurrent reads
+// always see a consistent snapshot.
 func (s *Store) Reload(entries []sublist.Entry) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	old := s.state.Load()
 
-	s.endpoints = make(map[string]Endpoint)
-	s.subIdToEndpoints = make(map[string][]string)
-	s.health = make(map[string]HealthInfo)
-	s.lastServed = make(map[string]string)
+	old.mu.RLock()
+	strategy := old.strategy
+	old.mu.RUnlock()
 
-	for _, e := range entries {
-		s.addEndpointLocked(e.URL, e.SubId, e.Name)
+	newState := &storeState{
+		endpoints:        make(map[string]Endpoint),
+		subIdToEndpoints: make(map[string][]string),
+		health:           make(map[string]HealthInfo),
+		lastServed:       make(map[string]string),
+		strategy:         strategy,
 	}
+	for _, e := range entries {
+		id := e.URL
+		newState.endpoints[id] = Endpoint{
+			ID:    id,
+			URL:   e.URL,
+			SubId: e.SubId,
+			Name:  e.Name,
+		}
+		newState.subIdToEndpoints[e.SubId] = append(newState.subIdToEndpoints[e.SubId], id)
+		newState.health[id] = HealthInfo{
+			Healthy:     true,
+			LastChecked: time.Now(),
+		}
+	}
+
+	s.state.Store(newState)
 }
 
 // GetBestEndpoint returns the best endpoint for a subId based on the configured strategy.
 // Strategies: "fastest" (lowest latency), "random" (random, avoids repeating last),
 // "first" (first healthy). If all are down, returns the most recently checked.
 func (s *Store) GetBestEndpoint(subId string) *Endpoint {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	st := s.state.Load()
 
-	ids := s.subIdToEndpoints[subId]
+	ids := st.subIdToEndpoints[subId]
 	if len(ids) == 0 {
 		return nil
 	}
@@ -135,7 +191,7 @@ func (s *Store) GetBestEndpoint(subId string) *Endpoint {
 	// Collect healthy endpoints
 	healthy := make([]string, 0, len(ids))
 	for _, id := range ids {
-		info, ok := s.health[id]
+		info, ok := st.health[id]
 		if ok && info.Healthy {
 			healthy = append(healthy, id)
 		}
@@ -144,47 +200,51 @@ func (s *Store) GetBestEndpoint(subId string) *Endpoint {
 	var chosen *Endpoint
 
 	if len(healthy) > 0 {
-		switch s.strategy {
+		switch st.strategy {
 		case "random":
-			chosen = s.pickRandom(healthy, subId)
+			chosen = s.pickRandom(st, healthy, subId)
 		case "first":
-			ep := s.endpoints[healthy[0]]
+			ep := st.endpoints[healthy[0]]
 			chosen = &ep
 		default: // "fastest"
-			chosen = s.pickFastest(healthy)
+			chosen = s.pickFastest(st, healthy)
 		}
 	}
 
 	if chosen != nil {
-		s.lastServed[subId] = chosen.ID
+		st.mu.Lock()
+		st.lastServed[subId] = chosen.ID
+		st.mu.Unlock()
 		return chosen
 	}
 
 	// All unhealthy — return the most recently checked
 	var best *Endpoint
 	for _, id := range ids {
-		info, ok := s.health[id]
+		info, ok := st.health[id]
 		if !ok {
 			continue
 		}
-		ep := s.endpoints[id]
-		if best == nil || info.LastChecked.After(s.health[best.ID].LastChecked) {
+		ep := st.endpoints[id]
+		if best == nil || info.LastChecked.After(st.health[best.ID].LastChecked) {
 			best = &ep
 		}
 	}
 
 	if best != nil {
-		s.lastServed[subId] = best.ID
+		st.mu.Lock()
+		st.lastServed[subId] = best.ID
+		st.mu.Unlock()
 	}
 	return best
 }
 
 // pickFastest returns the healthy endpoint with the lowest latency.
-func (s *Store) pickFastest(healthy []string) *Endpoint {
+func (s *Store) pickFastest(st *storeState, healthy []string) *Endpoint {
 	var best *Endpoint
 	for _, id := range healthy {
-		ep := s.endpoints[id]
-		if best == nil || s.health[id].LatencyMS < s.health[best.ID].LatencyMS {
+		ep := st.endpoints[id]
+		if best == nil || st.health[id].LatencyMS < st.health[best.ID].LatencyMS {
 			best = &ep
 		}
 	}
@@ -193,8 +253,8 @@ func (s *Store) pickFastest(healthy []string) *Endpoint {
 
 // pickRandom returns a random healthy endpoint, avoiding the one last served
 // for this subId when possible.
-func (s *Store) pickRandom(healthy []string, subId string) *Endpoint {
-	lastID := s.lastServed[subId]
+func (s *Store) pickRandom(st *storeState, healthy []string, subId string) *Endpoint {
+	lastID := st.lastServed[subId]
 
 	// If more than one option, exclude the last served
 	candidates := healthy
@@ -210,19 +270,21 @@ func (s *Store) pickRandom(healthy []string, subId string) *Endpoint {
 		}
 	}
 
-	id := candidates[rand.Intn(len(candidates))]
-	ep := s.endpoints[id]
+	id := candidates[s.rng.Intn(len(candidates))]
+	ep := st.endpoints[id]
 	return &ep
 }
 
 // Persist writes the health state to a JSON file.
 // Creates parent directories if they don't exist.
 func (s *Store) Persist(path string) error {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	st := s.state.Load()
 
-	data := make(map[string]HealthInfo, len(s.health))
-	for id, info := range s.health {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+
+	data := make(map[string]HealthInfo, len(st.health))
+	for id, info := range st.health {
 		data[id] = info
 	}
 
@@ -250,10 +312,12 @@ func (s *Store) LoadFromDisk(path string) error {
 		return err
 	}
 
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	st := s.state.Load()
+
+	st.mu.Lock()
+	defer st.mu.Unlock()
 	for id, info := range healthMap {
-		s.health[id] = info
+		st.health[id] = info
 	}
 	return nil
 }
@@ -267,19 +331,21 @@ type ServerHealth struct {
 // HealthReport returns a map of subId -> serverName -> health info.
 // This is used by the /health endpoint to report per-subscription, per-server status.
 func (s *Store) HealthReport() map[string]map[string]ServerHealth {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	st := s.state.Load()
+
+	st.mu.Lock()
+	defer st.mu.Unlock()
 
 	report := make(map[string]map[string]ServerHealth)
 
-	for subId, ids := range s.subIdToEndpoints {
+	for subId, ids := range st.subIdToEndpoints {
 		subReport := make(map[string]ServerHealth, len(ids))
 		for _, id := range ids {
-			ep, ok := s.endpoints[id]
+			ep, ok := st.endpoints[id]
 			if !ok {
 				continue
 			}
-			info, ok := s.health[id]
+			info, ok := st.health[id]
 			if !ok {
 				continue
 			}

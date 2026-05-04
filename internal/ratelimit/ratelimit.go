@@ -3,6 +3,8 @@ package ratelimit
 import (
 	"net"
 	"net/http"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -29,15 +31,29 @@ func NewSlidingWindow(maxReqs int, window time.Duration) *SlidingWindow {
 	}
 }
 
+func extractClientIP(r *http.Request) string {
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		parts := strings.Split(xff, ",")
+		ip := strings.TrimSpace(parts[0])
+		if ip != "" {
+			return ip
+		}
+	}
+	if xri := r.Header.Get("X-Real-IP"); xri != "" {
+		return xri
+	}
+	ip := r.RemoteAddr
+	if host, _, err := net.SplitHostPort(ip); err == nil {
+		ip = host
+	}
+	return ip
+}
+
 // Limit wraps an http.Handler with per-IP rate limiting.
 // Returns 429 Too Many Requests when the limit is exceeded.
 func (rl *SlidingWindow) Limit(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ip := r.RemoteAddr
-		// Strip port for IPv6 addresses like [::1]:54321
-		if host, _, err := net.SplitHostPort(ip); err == nil {
-			ip = host
-		}
+		ip := extractClientIP(r)
 
 		rl.mu.Lock()
 		cs, ok := rl.clients[ip]
@@ -56,6 +72,7 @@ func (rl *SlidingWindow) Limit(next http.Handler) http.Handler {
 		rl.mu.Unlock()
 
 		if cs.count > rl.maxReqs {
+			w.Header().Set("Retry-After", strconv.FormatInt(int64(rl.window.Seconds()), 10))
 			http.Error(w, "rate limit exceeded", http.StatusTooManyRequests)
 			return
 		}

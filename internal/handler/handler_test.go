@@ -117,3 +117,68 @@ func TestHealthCheckEndpointEmpty(t *testing.T) {
 		t.Errorf("Body = %q, want '{}'", body)
 	}
 }
+
+func TestLivezEndpoint(t *testing.T) {
+	s := store.NewStore("fastest")
+	p := proxy.New(s, "fastest", 5*time.Second)
+	h := New(s, p, nil)
+
+	req := httptest.NewRequest("GET", "/livez", nil)
+	w := httptest.NewRecorder()
+
+	h.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("Status = %d, want %d", w.Code, http.StatusOK)
+	}
+
+	if strings.TrimSpace(w.Body.String()) != "ok" {
+		t.Errorf("Body = %q, want 'ok'", w.Body.String())
+	}
+}
+
+func TestSecurityHeaders(t *testing.T) {
+	s := store.NewStore("fastest")
+	p := proxy.New(s, "fastest", 5*time.Second)
+	h := New(s, p, nil)
+
+	req := httptest.NewRequest("GET", "/health", nil)
+	w := httptest.NewRecorder()
+
+	h.ServeHTTP(w, req)
+
+	expectedHeaders := map[string]string{
+		"X-Content-Type-Options":        "nosniff",
+		"X-Frame-Options":               "DENY",
+		"X-XSS-Protection":              "1; mode=block",
+		"Strict-Transport-Security":     "max-age=31536000; includeSubDomains",
+		"Cache-Control":                 "no-store",
+	}
+
+	for header, expected := range expectedHeaders {
+		got := w.Header().Get(header)
+		if got != expected {
+			t.Errorf("%s = %q, want %q", header, got, expected)
+		}
+	}
+}
+
+func TestRequestID(t *testing.T) {
+	s := store.NewStore("fastest")
+	p := proxy.New(s, "fastest", 5*time.Second)
+	h := New(s, p, nil)
+
+	req := httptest.NewRequest("GET", "/health", nil)
+	w := httptest.NewRecorder()
+
+	h.ServeHTTP(w, req)
+
+	requestID := w.Header().Get("X-Request-Id")
+	if requestID == "" {
+		t.Error("X-Request-Id header is empty")
+	}
+
+	if len(requestID) != 32 {
+		t.Errorf("X-Request-Id = %q (len %d), want 32 hex characters", requestID, len(requestID))
+	}
+}

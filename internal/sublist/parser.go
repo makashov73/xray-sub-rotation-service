@@ -2,6 +2,8 @@ package sublist
 
 import (
 	"bufio"
+	"fmt"
+	"net/url"
 	"os"
 	"strings"
 )
@@ -24,7 +26,9 @@ func Parse(path string) ([]Entry, error) {
 	var entries []Entry
 	scanner := bufio.NewScanner(f)
 
+	lineNum := 0
 	for scanner.Scan() {
+		lineNum++
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
@@ -36,7 +40,10 @@ func Parse(path string) ([]Entry, error) {
 		}
 
 		subId := strings.TrimSpace(parts[0])
-		url := strings.TrimSpace(parts[1])
+		urlStr := strings.TrimSpace(parts[1])
+		if _, err := url.Parse(urlStr); err != nil {
+			return entries, fmt.Errorf("line %d: invalid URL %q: %w", lineNum, urlStr, err)
+		}
 		name := ""
 		if len(parts) >= 3 {
 			name = strings.TrimSpace(parts[2])
@@ -44,7 +51,7 @@ func Parse(path string) ([]Entry, error) {
 
 		entries = append(entries, Entry{
 			SubId: subId,
-			URL:   url,
+			URL:   urlStr,
 			Name:  name,
 		})
 	}

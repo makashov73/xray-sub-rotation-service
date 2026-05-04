@@ -50,7 +50,7 @@ func TestCheckEndpointFailure(t *testing.T) {
 	}
 }
 
-func TestCheckEndpointUsesGET(t *testing.T) {
+func TestCheckEndpointUsesHEAD(t *testing.T) {
 	s := store.NewStore("fastest")
 	p := New(s, "fastest", 5*time.Second)
 
@@ -70,7 +70,7 @@ func TestCheckEndpointUsesGET(t *testing.T) {
 	if !health.Healthy {
 		t.Error("Expected healthy endpoint")
 	}
-	if receivedMethod != "GET" {
-		t.Errorf("Expected GET request, got %s", receivedMethod)
+	if receivedMethod != "HEAD" {
+		t.Errorf("Expected HEAD request, got %s", receivedMethod)
 	}
 }

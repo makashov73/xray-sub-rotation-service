@@ -19,8 +19,6 @@ health_check:
   enabled: false
 strategy: "fastest"
 sublist_file: "sublist.md"
-auth:
-  api_key: ""
 `), 0644)
 
 	// Initial sublist
@@ -43,11 +41,8 @@ health_check:
   enabled: true
   interval: 10s
   timeout: 3s
-  healthy_count: 1
 strategy: "random"
 sublist_file: "sublist.md"
-auth:
-  api_key: "new-key"
 `), 0644)
 
 	// Update sublist
