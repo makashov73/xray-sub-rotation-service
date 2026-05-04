@@ -26,7 +26,12 @@
 **Implementation approach:** Replace the mutex-wrapped maps with an `atomic.Pointer[storeState]`. `storeState` is a plain struct holding all maps. `GetBestEndpoint` loads the pointer once, works on the immutable snapshot, and releases. `Reload` builds a new `storeState` and calls `atomic.StorePointer`. This is a zero-allocation change and guarantees no concurrent access.
 
 ```go
-// In store.go, add:
+// store.go imports — add to existing imports:
+import (
+    "sync/atomic"
+    // ... existing imports
+)
+
 type storeState struct {
     endpoints        map[string]Endpoint
     subIdToEndpoints map[string][]string
@@ -40,9 +45,7 @@ type Store struct {
 }
 
 func NewStore(strategy string) *Store {
-    s := &Store{
-        state: atomic.Pointer[storeState]{},
-    }
+    s := &Store{}
     s.state.Store(&storeState{
         endpoints:        make(map[string]Endpoint),
         subIdToEndpoints: make(map[string][]string),
@@ -53,23 +56,89 @@ func NewStore(strategy string) *Store {
     return s
 }
 
+// GetBestEndpoint loads a consistent snapshot and works on it.
 func (s *Store) GetBestEndpoint(subId string) *Endpoint {
     st := s.state.Load()
-    // ... work on st directly, no lock
+
+    ids := st.subIdToEndpoints[subId]
+    if len(ids) == 0 {
+        return nil
+    }
+
+    healthy := make([]string, 0, len(ids))
+    for _, id := range ids {
+        info, ok := st.health[id]
+        if ok && info.Healthy {
+            healthy = append(healthy, id)
+        }
+    }
+
+    var chosen *Endpoint
+    if len(healthy) > 0 {
+        switch st.strategy {
+        case "random":
+            chosen = s.pickRandom(st, healthy, subId)
+        case "first":
+            ep := st.endpoints[healthy[0]]
+            chosen = &ep
+        default:
+            chosen = s.pickFastest(st, healthy)
+        }
+    }
+
+    if chosen != nil {
+        st.lastServed[subId] = chosen.ID
+        return chosen
+    }
+
+    // All unhealthy — return the most recently checked
+    var best *Endpoint
+    for _, id := range ids {
+        info, ok := st.health[id]
+        if !ok {
+            continue
+        }
+        ep := st.endpoints[id]
+        if best == nil || info.LastChecked.After(st.health[best.ID].LastChecked) {
+            best = &ep
+        }
+    }
+
+    if best != nil {
+        st.lastServed[subId] = best.ID
+    }
+    return best
 }
 
-func (s *Store) Reload(entries []sublist.Entry) {
-    st := &storeState{
-        strategy:         s.state.Load().strategy,
-        endpoints:        make(map[string]Endpoint),
-        subIdToEndpoints: make(map[string][]string),
-        health:           make(map[string]HealthInfo),
-        lastServed:       make(map[string]string),
+// pickFastest and pickRandom are updated to work on *storeState snapshots.
+func (s *Store) pickFastest(st *storeState, healthy []string) *Endpoint {
+    var best *Endpoint
+    for _, id := range healthy {
+        ep := st.endpoints[id]
+        if best == nil || st.health[id].LatencyMS < st.health[best.ID].LatencyMS {
+            best = &ep
+        }
     }
-    for _, e := range entries {
-        st.addEndpointLocked(e.URL, e.SubId, e.Name)
+    return best
+}
+
+func (s *Store) pickRandom(st *storeState, healthy []string, subId string) *Endpoint {
+    lastID := st.lastServed[subId]
+    candidates := healthy
+    if len(healthy) > 1 && lastID != "" {
+        candidates = make([]string, 0, len(healthy)-1)
+        for _, id := range healthy {
+            if id != lastID {
+                candidates = append(candidates, id)
+            }
+        }
+        if len(candidates) == 0 {
+            candidates = healthy
+        }
     }
-    s.state.Store(st)
+    id := s.rng.Intn(len(candidates))
+    ep := st.endpoints[id]
+    return &ep
 }
 ```
 
@@ -80,7 +149,6 @@ func TestReloadConcurrentGetBestEndpoint(t *testing.T) {
     s.AddEndpoint("https://a.example.com/sub/x", "x", "A")
     s.AddEndpoint("https://b.example.com/sub/x", "x", "B")
 
-    done := make(chan struct{})
     var wg sync.WaitGroup
     for i := 0; i < 100; i++ {
         wg.Add(1)
@@ -94,7 +162,6 @@ func TestReloadConcurrentGetBestEndpoint(t *testing.T) {
     for i := 0; i < 10; i++ {
         s.Reload([]sublist.Entry{{SubId: "x", URL: "https://c.example.com/sub/x", Name: "C"}})
     }
-    done <- struct{}{}
     wg.Wait()
 }
 ```
@@ -121,22 +188,24 @@ import (
 )
 
 type Store struct {
-    rng *rand.Rand
-    // ... other fields
+    state atomic.Pointer[storeState]
+    rng   *rand.Rand  // added here
 }
 
 func NewStore(strategy string) *Store {
-    return &Store{
-        rng: rand.New(rand.NewSource(time.Now().UnixNano())),
-        // ...
-    }
+    s := &Store{}
+    s.state.Store(&storeState{
+        endpoints:        make(map[string]Endpoint),
+        subIdToEndpoints: make(map[string][]string),
+        health:           make(map[string]HealthInfo),
+        lastServed:       make(map[string]string),
+        strategy:         strategy,
+    })
+    s.rng = rand.New(rand.NewSource(time.Now().UnixNano()))
+    return s
 }
 
-func (s *Store) pickRandom(healthy []string, subId string) *Endpoint {
-    // ... existing logic
-    id := s.rng.Intn(len(candidates))  // use s.rng instead of rand.Intn
-    // ...
-}
+// pickRandom is already defined in Task 1 above and uses s.rng — no further changes needed.
 ```
 
 **Tests:** `TestRandomStrategyNonDeterministic` — verify two stores with same data return different endpoints.
@@ -444,7 +513,10 @@ func (h *Handler) liveHandler(w http.ResponseWriter, r *http.Request) {
 }
 ```
 
-Register as `/livez` (Kubernetes convention).
+In `RegisterRoutes`, add:
+```go
+mux.HandleFunc("/livez", h.liveHandler)
+```
 
 **Commit message:** `feat(handler): add /livez liveness endpoint`
 
@@ -473,7 +545,13 @@ func (c *Config) Validate() error {
 
 func LoadConfig(path string) (Config, error) {
     cfg := DefaultConfig()
-    // ... unmarshal ...
+    data, err := os.ReadFile(path)
+    if err != nil {
+        return cfg, err
+    }
+    if err := yaml.Unmarshal(data, &cfg); err != nil {
+        return cfg, err
+    }
     if err := cfg.Validate(); err != nil {
         return cfg, err
     }
@@ -500,14 +578,46 @@ func LoadConfig(path string) (Config, error) {
 import "net/url"
 
 func Parse(path string) ([]Entry, error) {
-    // ... existing logic ...
+    f, err := os.Open(path)
+    if err != nil {
+        return nil, err
+    }
+    defer f.Close()
+
+    var entries []Entry
+    scanner := bufio.NewScanner(f)
+    lineNum := 0
+
     for scanner.Scan() {
-        // ...
+        lineNum++
+        line := strings.TrimSpace(scanner.Text())
+        if line == "" || strings.HasPrefix(line, "#") {
+            continue
+        }
+
+        parts := strings.Split(line, "|")
+        if len(parts) < 2 {
+            continue
+        }
+
+        subId := strings.TrimSpace(parts[0])
+        url := strings.TrimSpace(parts[1])
         if _, err := url.Parse(url); err != nil {
             return entries, fmt.Errorf("line %d: invalid URL %q: %w", lineNum, url, err)
         }
-        entries = append(entries, Entry{SubId: subId, URL: url, Name: name})
+        name := ""
+        if len(parts) >= 3 {
+            name = strings.TrimSpace(parts[2])
+        }
+
+        entries = append(entries, Entry{
+            SubId: subId,
+            URL:   url,
+            Name:  name,
+        })
     }
+
+    return entries, scanner.Err()
 }
 ```
 
@@ -569,7 +679,18 @@ test-race:
 ```go
 package handler_test
 
-// TestFullServer tests the full server stack with real HTTP requests.
+import (
+    "net/http"
+    "net/http/httptest"
+    "testing"
+    "time"
+
+    "github.com/makashov73/xray-sub-rotation-service/internal/handler"
+    "github.com/makashov73/xray-sub-rotation-service/internal/proxy"
+    "github.com/makashov73/xray-sub-rotation-service/internal/ratelimit"
+    "github.com/makashov73/xray-sub-rotation-service/internal/store"
+)
+
 func TestFullServer(t *testing.T) {
     s := store.NewStore("random")
     p := proxy.New(s, "random", 5*time.Second)
@@ -581,9 +702,13 @@ func TestFullServer(t *testing.T) {
     srv := httptest.NewServer(mux)
     defer srv.Close()
 
-    // Test subscription routing
     resp, err := http.Get(srv.URL + "/subrouter/abc123")
-    assert.Equal(t, http.StatusNotFound, resp.StatusCode)
+    if err != nil {
+        t.Fatal(err)
+    }
+    if resp.StatusCode != http.StatusNotFound {
+        t.Errorf("Status = %d, want %d", resp.StatusCode, http.StatusNotFound)
+    }
 }
 ```
 
