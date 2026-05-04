@@ -9,7 +9,7 @@ health_check:
   healthy_count: 2
   persist_path: "/var/lib/xray-sub-rotation/health.json"  # optional
 
-strategy: "fastest"  # fastest | random | first
+strategy: "random"  # fastest | random | first
 
 sublist_file: "sublist.md"
 
