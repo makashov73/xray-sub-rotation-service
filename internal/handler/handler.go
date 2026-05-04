@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -38,6 +39,10 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 			h.healthHandler(w, r)
 			return
 		}
+		if r.URL.Path == "/livez" || r.URL.Path == "/livez/" {
+			h.liveHandler(w, r)
+			return
+		}
 		if strings.HasPrefix(r.URL.Path, "/subrouter/") {
 			h.subscriptionHandler(w, r)
 			return
@@ -49,16 +54,36 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 		protected = h.rateLimiter.Limit(protected)
 	}
 
+	protected = RequestID(SecurityHeaders(protected))
+
 	mux.Handle("/health", protected)
+	mux.Handle("/livez", protected)
 	mux.Handle("/subrouter/", protected)
 }
 
 // ServeHTTP implements http.Handler for the subscription handler.
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	var protected http.Handler = http.HandlerFunc(h.handleRoutes)
+
+	if h.rateLimiter != nil {
+		protected = h.rateLimiter.Limit(protected)
+	}
+
+	protected = RequestID(SecurityHeaders(protected))
+
+	protected.ServeHTTP(w, r)
+}
+
+func (h *Handler) handleRoutes(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Path
 
 	if path == "/health" || path == "/health/" {
 		h.healthHandler(w, r)
+		return
+	}
+
+	if path == "/livez" || path == "/livez/" {
+		h.liveHandler(w, r)
 		return
 	}
 
@@ -87,21 +112,33 @@ func (h *Handler) subscriptionHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Fetch subscription from the best 3x-ui endpoint
-	resp, err := h.fetcher.Get(best.URL)
+	req, err := http.NewRequestWithContext(r.Context(), "GET", best.URL, nil)
+	if err != nil {
+		http.Error(w, "failed to create request", http.StatusInternalServerError)
+		return
+	}
+
+	resp, err := h.fetcher.Do(req)
 	if err != nil {
 		http.Error(w, "failed to fetch subscription", http.StatusBadGateway)
 		return
 	}
 	defer resp.Body.Close()
 
-	// Forward the response
+	// Forward the response with size limit
 	w.Header().Set("Content-Type", resp.Header.Get("Content-Type"))
 	w.WriteHeader(resp.StatusCode)
-	io.Copy(w, resp.Body)
+	store.RequestCounter().WithLabelValues(fmt.Sprintf("%d", resp.StatusCode), subId).Inc()
+	io.Copy(w, io.LimitReader(resp.Body, 10*1024*1024))
 }
 
 func (h *Handler) healthHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(h.store.HealthReport())
+}
+
+func (h *Handler) liveHandler(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte("ok"))
 }

@@ -100,6 +100,112 @@ func TestRateLimitExpiry(t *testing.T) {
 	}
 }
 
+func TestRateLimitXForwardedFor(t *testing.T) {
+	limiter := NewSlidingWindow(2, time.Second)
+
+	// First request with X-Forwarded-For — should pass
+	req := httptest.NewRequest("GET", "/subrouter/abc123", nil)
+	req.RemoteAddr = "10.0.0.1"
+	req.Header.Set("X-Forwarded-For", "203.0.113.50")
+	w := httptest.NewRecorder()
+	limiter.Limit(http.HandlerFunc(nextHandler)).ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Errorf("Request 1: status = %d, want %d", w.Code, http.StatusOK)
+	}
+
+	// Second request — should pass
+	req = httptest.NewRequest("GET", "/subrouter/abc123", nil)
+	req.RemoteAddr = "10.0.0.1"
+	req.Header.Set("X-Forwarded-For", "203.0.113.50")
+	w = httptest.NewRecorder()
+	limiter.Limit(http.HandlerFunc(nextHandler)).ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Errorf("Request 2: status = %d, want %d", w.Code, http.StatusOK)
+	}
+
+	// Third request — should be rate limited based on X-Forwarded-For IP
+	req = httptest.NewRequest("GET", "/subrouter/abc123", nil)
+	req.RemoteAddr = "10.0.0.1"
+	req.Header.Set("X-Forwarded-For", "203.0.113.50")
+	w = httptest.NewRecorder()
+	limiter.Limit(http.HandlerFunc(nextHandler)).ServeHTTP(w, req)
+	if w.Code != http.StatusTooManyRequests {
+		t.Errorf("Request 3: status = %d, want %d", w.Code, http.StatusTooManyRequests)
+	}
+}
+
+func TestRateLimitXRealIP(t *testing.T) {
+	limiter := NewSlidingWindow(2, time.Second)
+
+	// Without X-Forwarded-For, falls back to X-Real-IP
+	req := httptest.NewRequest("GET", "/subrouter/abc123", nil)
+	req.RemoteAddr = "10.0.0.1"
+	req.Header.Set("X-Real-IP", "198.51.100.10")
+	w := httptest.NewRecorder()
+	limiter.Limit(http.HandlerFunc(nextHandler)).ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Errorf("Request 1: status = %d, want %d", w.Code, http.StatusOK)
+	}
+
+	// Second request with X-Real-IP — should pass
+	req = httptest.NewRequest("GET", "/subrouter/abc123", nil)
+	req.RemoteAddr = "10.0.0.1"
+	req.Header.Set("X-Real-IP", "198.51.100.10")
+	w = httptest.NewRecorder()
+	limiter.Limit(http.HandlerFunc(nextHandler)).ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Errorf("Request 2: status = %d, want %d", w.Code, http.StatusOK)
+	}
+
+	// Third request — rate limited by X-Real-IP
+	req = httptest.NewRequest("GET", "/subrouter/abc123", nil)
+	req.RemoteAddr = "10.0.0.1"
+	req.Header.Set("X-Real-IP", "198.51.100.10")
+	w = httptest.NewRecorder()
+	limiter.Limit(http.HandlerFunc(nextHandler)).ServeHTTP(w, req)
+	if w.Code != http.StatusTooManyRequests {
+		t.Errorf("Request 3: status = %d, want %d", w.Code, http.StatusTooManyRequests)
+	}
+
+	// Request without X-Real-IP uses RemoteAddr — should pass
+	req = httptest.NewRequest("GET", "/subrouter/abc123", nil)
+	req.RemoteAddr = "10.0.0.1"
+	w = httptest.NewRecorder()
+	limiter.Limit(http.HandlerFunc(nextHandler)).ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Errorf("Request 4 (no X-Real-IP): status = %d, want %d", w.Code, http.StatusOK)
+	}
+}
+
+func TestRateLimitRetryAfterHeader(t *testing.T) {
+	limiter := NewSlidingWindow(1, 60*time.Second)
+
+	// First request succeeds
+	req := httptest.NewRequest("GET", "/subrouter/abc123", nil)
+	req.RemoteAddr = "1.2.3.4"
+	w := httptest.NewRecorder()
+	limiter.Limit(http.HandlerFunc(nextHandler)).ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatal("Expected 200 on first request")
+	}
+
+	// Second request is rate limited
+	req = httptest.NewRequest("GET", "/subrouter/abc123", nil)
+	req.RemoteAddr = "1.2.3.4"
+	w = httptest.NewRecorder()
+	limiter.Limit(http.HandlerFunc(nextHandler)).ServeHTTP(w, req)
+	if w.Code != http.StatusTooManyRequests {
+		t.Fatalf("Expected 429, got %d", w.Code)
+	}
+	retryAfter := w.Header().Get("Retry-After")
+	if retryAfter == "" {
+		t.Error("Expected Retry-After header")
+	}
+	if retryAfter != "60" {
+		t.Errorf("Retry-After = %q, want %q", retryAfter, "60")
+	}
+}
+
 func nextHandler(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }

@@ -58,7 +58,7 @@ func (p *Proxy) checkAll() {
 func (p *Proxy) checkEndpoint(ep store.Endpoint) {
 	start := time.Now()
 
-	req, err := http.NewRequest("GET", ep.URL, nil)
+	req, err := http.NewRequest("HEAD", ep.URL, nil)
 	if err != nil {
 		slog.Warn("Failed to create health check request", "endpoint", ep.URL, "error", err)
 		return

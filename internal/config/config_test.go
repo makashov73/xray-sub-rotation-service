@@ -94,11 +94,8 @@ health_check:
   enabled: false
   interval: 60s
   timeout: 3s
-  healthy_count: 3
 strategy: "random"
 sublist_file: "/tmp/test-sublist.md"
-auth:
-  api_key: "test-key"
 `
 	path := filepath.Join(dir, "config.yaml")
 	os.WriteFile(path, []byte(yaml), 0644)
@@ -120,9 +117,6 @@ auth:
 	if cfg.Strategy != "random" {
 		t.Errorf("Strategy = %q, want %q", cfg.Strategy, "random")
 	}
-	if cfg.Auth.APIKey != "test-key" {
-		t.Errorf("APIKey = %q, want %q", cfg.Auth.APIKey, "test-key")
-	}
 }
 
 func TestDefaultConfig(t *testing.T) {
@@ -141,5 +135,26 @@ func TestDefaultConfig(t *testing.T) {
 	}
 	if cfg.HealthCheck.Interval != 30*time.Second {
 		t.Errorf("Default Interval = %v, want %v", cfg.HealthCheck.Interval, 30*time.Second)
+	}
+}
+
+func TestValidate(t *testing.T) {
+	tests := []struct {
+		strategy string
+		wantErr  bool
+	}{
+		{"fastest", false},
+		{"random", false},
+		{"first", false},
+		{"invalid", true},
+		{"", true},
+	}
+	for _, tt := range tests {
+		cfg := DefaultConfig()
+		cfg.Strategy = tt.strategy
+		err := cfg.Validate()
+		if (err != nil) != tt.wantErr {
+			t.Errorf("Validate(%q) error = %v, wantErr = %v", tt.strategy, err, tt.wantErr)
+		}
 	}
 }

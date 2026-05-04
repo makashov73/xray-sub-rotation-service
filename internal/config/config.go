@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"strconv"
 	"time"
@@ -13,7 +14,6 @@ type Config struct {
 	HealthCheck HealthCheckConfig `yaml:"health_check"`
 	Strategy    string            `yaml:"strategy"`
 	SublistFile string            `yaml:"sublist_file"`
-	Auth        AuthConfig        `yaml:"auth"`
 	TLS         TLSConfig         `yaml:"tls"`
 	RateLimit   RateLimitConfig   `yaml:"rate_limit"`
 }
@@ -42,12 +42,7 @@ type HealthCheckConfig struct {
 	Enabled      bool          `yaml:"enabled"`
 	Interval     time.Duration `yaml:"interval"`
 	Timeout      time.Duration `yaml:"timeout"`
-	HealthyCount int           `yaml:"healthy_count"` // deprecated — parsed but not used, kept for config compatibility
-	PersistPath  string        `yaml:"persist_path"`
-}
-
-type AuthConfig struct {
-	APIKey string `yaml:"api_key"`
+	PersistPath  string `yaml:"persist_path"`
 }
 
 type TLSConfig struct {
@@ -68,10 +63,9 @@ func DefaultConfig() Config {
 			Port: 8080,
 		},
 		HealthCheck: HealthCheckConfig{
-			Enabled:      true,
-			Interval:     30 * time.Second,
-			Timeout:      5 * time.Second,
-			HealthyCount: 2,
+			Enabled:  true,
+			Interval: 30 * time.Second,
+			Timeout:  5 * time.Second,
 		},
 		Strategy: "fastest",
 		RateLimit: RateLimitConfig{
@@ -98,5 +92,18 @@ func LoadConfig(path string) (Config, error) {
 		return cfg, err
 	}
 
+	if err := cfg.Validate(); err != nil {
+		return cfg, err
+	}
+
 	return cfg, nil
+}
+
+var validStrategies = map[string]bool{"fastest": true, "random": true, "first": true}
+
+func (c *Config) Validate() error {
+	if !validStrategies[c.Strategy] {
+		return fmt.Errorf("invalid strategy %q: must be one of fastest, random, first", c.Strategy)
+	}
+	return nil
 }

@@ -9,6 +9,7 @@ import (
 	"os/signal"
 	"strconv"
 	"syscall"
+	"time"
 
 	"github.com/makashov73/xray-sub-rotation-service/internal/config"
 	"github.com/makashov73/xray-sub-rotation-service/internal/handler"
@@ -18,6 +19,7 @@ import (
 	"github.com/makashov73/xray-sub-rotation-service/internal/store"
 	"github.com/makashov73/xray-sub-rotation-service/internal/sublist"
 	"github.com/makashov73/xray-sub-rotation-service/internal/tls"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 var version = "dev"
@@ -102,6 +104,7 @@ func main() {
 	h := handler.New(s, p, rateLimiter)
 	mux := http.NewServeMux()
 	h.RegisterRoutes(mux)
+	mux.Handle("/metrics", promhttp.Handler())
 
 	// Start server
 	addr := cfg.Server.Host + ":" + strconv.Itoa(cfg.Server.Port)
@@ -164,7 +167,9 @@ func main() {
 	}
 
 	slog.Info("Shutting down server")
-	server.Shutdown(context.Background())
+	shutdownCtx, shutdownCancel := context.WithTimeout(ctx, 10*time.Second)
+	defer shutdownCancel()
+	server.Shutdown(shutdownCtx)
 
 	// Persist health state on shutdown
 	if healthPath := cfg.HealthCheck.PersistPath; healthPath != "" {

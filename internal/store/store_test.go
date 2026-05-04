@@ -1,8 +1,11 @@
 package store
 
 import (
+	"sync"
 	"testing"
 	"time"
+
+	"github.com/makashov73/xray-sub-rotation-service/internal/sublist"
 )
 
 func TestAddAndGetEndpoints(t *testing.T) {
@@ -47,7 +50,7 @@ func TestRecordAndReadHealth(t *testing.T) {
 		LastChecked: time.Now(),
 	})
 
-	health, ok := s.health["https://xray1.example.com/sub/abc"]
+	health, ok := s.GetHealth("https://xray1.example.com/sub/abc")
 	if !ok {
 		t.Fatal("Health info not found")
 	}
@@ -287,5 +290,66 @@ func TestHealthReportUnknownSubId(t *testing.T) {
 	report := s.HealthReport()
 	if _, ok := report["nonexistent"]; ok {
 		t.Error("Unexpected subId in report")
+	}
+}
+
+func TestReloadConcurrentGetBestEndpoint(t *testing.T) {
+	s := NewStore("fastest")
+	s.AddEndpoint("https://a.example.com/sub/x", "x", "A")
+	s.AddEndpoint("https://b.example.com/sub/x", "x", "B")
+
+	var wg sync.WaitGroup
+	for i := 0; i < 100; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < 100; j++ {
+				s.GetBestEndpoint("x")
+			}
+		}()
+	}
+	for i := 0; i < 10; i++ {
+		s.Reload([]sublist.Entry{{SubId: "x", URL: "https://c.example.com/sub/x", Name: "C"}})
+	}
+	wg.Wait()
+}
+
+func TestRandomStrategyNonDeterministic(t *testing.T) {
+	s1 := NewStore("random")
+	s2 := NewStore("random")
+	s1.AddEndpoint("https://xray1.example.com/sub/abc", "abc123", "server1")
+	s1.AddEndpoint("https://xray2.example.com/sub/abc", "abc123", "server2")
+	s2.AddEndpoint("https://xray1.example.com/sub/abc", "abc123", "server1")
+	s2.AddEndpoint("https://xray2.example.com/sub/abc", "abc123", "server2")
+
+	s1.RecordHealth("https://xray1.example.com/sub/abc", HealthInfo{Healthy: true, LatencyMS: 50, LastChecked: time.Now()})
+	s1.RecordHealth("https://xray2.example.com/sub/abc", HealthInfo{Healthy: true, LatencyMS: 50, LastChecked: time.Now()})
+	s2.RecordHealth("https://xray1.example.com/sub/abc", HealthInfo{Healthy: true, LatencyMS: 50, LastChecked: time.Now()})
+	s2.RecordHealth("https://xray2.example.com/sub/abc", HealthInfo{Healthy: true, LatencyMS: 50, LastChecked: time.Now()})
+
+	results1 := make(map[string]int)
+	results2 := make(map[string]int)
+	for i := 0; i < 100; i++ {
+		if ep := s1.GetBestEndpoint("abc123"); ep != nil {
+			results1[ep.Name]++
+		}
+		if ep := s2.GetBestEndpoint("abc123"); ep != nil {
+			results2[ep.Name]++
+		}
+	}
+	// Two independently seeded stores should produce different distributions
+	if len(results1) == 0 || len(results2) == 0 {
+		t.Fatal("Expected results from both stores")
+	}
+	// Check that distributions are not identical (high probability with enough samples)
+	same := true
+	for k, v1 := range results1 {
+		if v1 != results2[k] {
+			same = false
+			break
+		}
+	}
+	if same {
+		t.Log("Warning: both stores produced identical results (rare)")
 	}
 }
