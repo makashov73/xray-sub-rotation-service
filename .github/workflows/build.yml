@@ -38,15 +38,15 @@ jobs:
             ARCH="${OS_ARCH##*/}"
             NAME="xray-sub-rotation-${VERSION}-${OS}-${ARCH}"
             [ "$OS" = "windows" ] && NAME="${NAME}.exe"
-            EXT="${OS}"
-            [ "$OS" = "windows" ] && EXT="zip" || EXT="tar.gz"
             GOOS="$OS" GOARCH="$ARCH" CGO_ENABLED=0 go build \
               -ldflags="-s -w -X main.version=${VERSION}" \
               -o "dist/${NAME}" \
               ./cmd/xray-sub-rotation/
-            [ "$OS" = "windows" ] \
-              && cd dist && zip "${NAME}.zip" "${NAME}" && cd .. \
-              || cd dist && tar czf "${NAME}.tar.gz" "${NAME}" && cd ..
+            if [ "$OS" = "windows" ]; then
+              (cd dist && zip "${NAME}.zip" "${NAME}")
+            else
+              (cd dist && tar czf ../"${NAME}".tar.gz "${NAME}")
+            fi
           done
           ls -lh dist/
 
