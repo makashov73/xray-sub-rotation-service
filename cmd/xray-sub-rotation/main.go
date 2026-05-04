@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -19,7 +20,15 @@ import (
 	"github.com/makashov73/xray-sub-rotation-service/internal/tls"
 )
 
+var version = "dev"
+
 func main() {
+	// --version flag
+	if len(os.Args) > 1 && os.Args[1] == "--version" {
+		fmt.Println("xray-sub-rotation", version)
+		os.Exit(0)
+	}
+
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 

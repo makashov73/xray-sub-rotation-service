@@ -34,24 +34,48 @@ go build -o xray-sub-rotation ./cmd/xray-sub-rotation/
 - `GET /health` — Health check endpoint
 - `GET /subrouter/{subId}` — Fetch the best subscription for a user
 
-## Releases
+## Install
 
-Pre-built binaries are available on the [GitHub Releases](https://github.com/makashov73/xray-sub-rotation-service/releases) page.
-
-Download the appropriate binary for your platform:
+One-liner — downloads the correct binary for your platform and installs it:
 
 ```bash
-# Example: v1.0.0 for Linux AMD64
-curl -LO https://github.com/makashov73/xray-sub-rotation-service/releases/download/v1.0.0/xray-sub-rotation-v1.0.0-linux-amd64
-chmod +x xray-sub-rotation-v1.0.0-linux-amd64
-./xray-sub-rotation-v1.0.0-linux-amd64
+# Latest version
+curl -fsSL https://raw.githubusercontent.com/makashov73/xray-sub-rotation-service/main/install.sh | bash
+
+# Pin a version
+curl -fsSL https://raw.githubusercontent.com/makashov73/xray-sub-rotation-service/main/install.sh | bash -s -- --version v1.0.0
+
+# Install with config template
+curl -fsSL https://raw.githubusercontent.com/makashov73/xray-sub-rotation-service/main/install.sh | bash -s -- --with-config
+
+# Install to custom directory
+curl -fsSL https://raw.githubusercontent.com/makashov73/xray-sub-rotation-service/main/install.sh | bash -s -- -d /usr/local/bin
+
+# Install and run immediately
+curl -fsSL https://raw.githubusercontent.com/makashov73/xray-sub-rotation-service/main/install.sh | bash -s -- --run
 ```
+
+Or download the script first:
+
+```bash
+curl -LO https://raw.githubusercontent.com/makashov73/xray-sub-rotation-service/main/install.sh
+chmod +x install.sh
+./install.sh --help
+./install.sh --dry-run           # preview actions
+./install.sh --with-config --run # install, fetch config, and start
+```
+
+The script:
+- Detects OS (linux/darwin) and architecture (amd64/arm64)
+- Checks for required tools (curl/wget, tar, sha256sum/shasum)
+- Verifies downloaded binary against SHA-256 checksums
+- Installs to `~/.local/bin/` by default
 
 ### Building from source
 
 ```bash
 make build    # compile binary
-make run      # run with live reload
+make run      # run the service
 make test     # run tests
 make lint     # run golangci-lint
 ```
