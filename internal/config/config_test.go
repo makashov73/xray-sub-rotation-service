@@ -7,6 +7,83 @@ import (
 	"time"
 )
 
+func TestBuildSubscriptionURL(t *testing.T) {
+	tests := []struct {
+		name    string
+		domain  string
+		host    string
+		port    int
+		scheme  string
+		subID   string
+		wantURL string
+	}{
+		{
+			name:    "no domain - http",
+			domain:  "",
+			host:    "0.0.0.0",
+			port:    8080,
+			scheme:  "http",
+			subID:   "abc",
+			wantURL: "http://0.0.0.0:8080/subrouter/abc",
+		},
+		{
+			name:    "no domain - https",
+			domain:  "",
+			host:    "0.0.0.0",
+			port:    8443,
+			scheme:  "https",
+			subID:   "abc",
+			wantURL: "https://0.0.0.0:8443/subrouter/abc",
+		},
+		{
+			name:    "domain with default http port",
+			domain:  "example.com",
+			host:    "0.0.0.0",
+			port:    80,
+			scheme:  "http",
+			subID:   "abc",
+			wantURL: "http://example.com/subrouter/abc",
+		},
+		{
+			name:    "domain with default https port",
+			domain:  "example.com",
+			host:    "0.0.0.0",
+			port:    443,
+			scheme:  "https",
+			subID:   "abc",
+			wantURL: "https://example.com/subrouter/abc",
+		},
+		{
+			name:    "domain with non-default port",
+			domain:  "example.com",
+			host:    "0.0.0.0",
+			port:    8443,
+			scheme:  "https",
+			subID:   "abc",
+			wantURL: "https://example.com:8443/subrouter/abc",
+		},
+		{
+			name:    "domain with non-default http port",
+			domain:  "example.com",
+			host:    "0.0.0.0",
+			port:    8080,
+			scheme:  "http",
+			subID:   "abc",
+			wantURL: "http://example.com:8080/subrouter/abc",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := ServerConfig{Host: tt.host, Port: tt.port}
+			got := s.BuildSubscriptionURL(tt.domain, tt.scheme, tt.subID)
+			if got != tt.wantURL {
+				t.Errorf("BuildSubscriptionURL() = %q, want %q", got, tt.wantURL)
+			}
+		})
+	}
+}
+
 func TestLoadConfig(t *testing.T) {
 	dir := t.TempDir()
 	yaml := `

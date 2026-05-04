@@ -2,6 +2,7 @@ package config
 
 import (
 	"os"
+	"strconv"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -18,8 +19,23 @@ type Config struct {
 }
 
 type ServerConfig struct {
-	Host string `yaml:"host"`
-	Port int    `yaml:"port"`
+	Host   string `yaml:"host"`
+	Port   int    `yaml:"port"`
+	Domain string `yaml:"domain"`
+}
+
+func (s ServerConfig) BuildSubscriptionURL(domain, scheme, subID string) string {
+	host := s.Host
+	if domain != "" {
+		host = domain
+	}
+	port := s.Port
+	if domain != "" {
+		if (scheme == "http" && port == 80) || (scheme == "https" && port == 443) {
+			return scheme + "://" + host + "/subrouter/" + subID
+		}
+	}
+	return scheme + "://" + host + ":" + strconv.Itoa(port) + "/subrouter/" + subID
 }
 
 type HealthCheckConfig struct {
