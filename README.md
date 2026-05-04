@@ -40,25 +40,25 @@ One-liner — downloads the correct binary for your platform and installs it:
 
 ```bash
 # Latest version
-curl -fsSL https://raw.githubusercontent.com/makashov73/xray-sub-rotation-service/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/makashov73/xray-sub-rotation-service/master/install.sh | bash
 
 # Pin a version
-curl -fsSL https://raw.githubusercontent.com/makashov73/xray-sub-rotation-service/main/install.sh | bash -s -- --version v1.0.0
+curl -fsSL https://raw.githubusercontent.com/makashov73/xray-sub-rotation-service/master/install.sh | bash -s -- --version v1.0.0
 
 # Install with config template
-curl -fsSL https://raw.githubusercontent.com/makashov73/xray-sub-rotation-service/main/install.sh | bash -s -- --with-config
+curl -fsSL https://raw.githubusercontent.com/makashov73/xray-sub-rotation-service/master/install.sh | bash -s -- --with-config
 
 # Install to custom directory
-curl -fsSL https://raw.githubusercontent.com/makashov73/xray-sub-rotation-service/main/install.sh | bash -s -- -d /usr/local/bin
+curl -fsSL https://raw.githubusercontent.com/makashov73/xray-sub-rotation-service/master/install.sh | bash -s -- -d /usr/local/bin
 
 # Install and run immediately
-curl -fsSL https://raw.githubusercontent.com/makashov73/xray-sub-rotation-service/main/install.sh | bash -s -- --run
+curl -fsSL https://raw.githubusercontent.com/makashov73/xray-sub-rotation-service/master/install.sh | bash -s -- --run
 ```
 
 Or download the script first:
 
 ```bash
-curl -LO https://raw.githubusercontent.com/makashov73/xray-sub-rotation-service/main/install.sh
+curl -LO https://raw.githubusercontent.com/makashov73/xray-sub-rotation-service/master/install.sh
 chmod +x install.sh
 ./install.sh --help
 ./install.sh --dry-run           # preview actions
