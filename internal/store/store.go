@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"math/rand"
 	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -215,6 +216,7 @@ func (s *Store) pickRandom(healthy []string, subId string) *Endpoint {
 }
 
 // Persist writes the health state to a JSON file.
+// Creates parent directories if they don't exist.
 func (s *Store) Persist(path string) error {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -223,10 +225,17 @@ func (s *Store) Persist(path string) error {
 	for id, info := range s.health {
 		data[id] = info
 	}
-	return os.WriteFile(path, func() []byte {
-		b, _ := json.Marshal(data)
-		return b
-	}(), 0644)
+
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return err
+	}
+
+	b, err := json.Marshal(data)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, b, 0644)
 }
 
 // LoadFromDisk reads health state from a JSON file.
