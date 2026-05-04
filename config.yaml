@@ -6,7 +6,7 @@ health_check:
   enabled: true
   interval: 30s
   timeout: 5s
-  healthy_count: 2
+  healthy_count: 2  # deprecated — parsed but not used, kept for config compatibility
   persist_path: "/var/lib/xray-sub-rotation/health.json"  # optional
 
 strategy: "random"  # fastest | random | first

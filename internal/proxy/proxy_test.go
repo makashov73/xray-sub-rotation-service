@@ -13,7 +13,7 @@ func TestCheckEndpointSuccess(t *testing.T) {
 	s := store.NewStore("fastest")
 	s.AddEndpoint("http://test.example/sub/abc", "abc123", "test")
 
-	p := New(s, "fastest", 2, 5*time.Second)
+	p := New(s, "fastest", 5*time.Second)
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -40,12 +40,37 @@ func TestCheckEndpointFailure(t *testing.T) {
 	s := store.NewStore("fastest")
 	s.AddEndpoint("http://nonexistent.invalid:99999/sub/abc", "abc123", "test")
 
-	p := New(s, "fastest", 2, 5*time.Second)
+	p := New(s, "fastest", 5*time.Second)
 
 	p.checkEndpoint(s.GetEndpoints()[0])
 
 	health, _ := s.GetHealth(s.GetEndpoints()[0].ID)
 	if health.Healthy {
 		t.Error("Expected unhealthy endpoint")
+	}
+}
+
+func TestCheckEndpointUsesGET(t *testing.T) {
+	s := store.NewStore("fastest")
+	p := New(s, "fastest", 5*time.Second)
+
+	var receivedMethod string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedMethod = r.Method
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	p.checkEndpoint(store.Endpoint{ID: srv.URL, URL: srv.URL})
+
+	health, ok := s.GetHealth(srv.URL)
+	if !ok {
+		t.Fatal("Health info not found")
+	}
+	if !health.Healthy {
+		t.Error("Expected healthy endpoint")
+	}
+	if receivedMethod != "GET" {
+		t.Errorf("Expected GET request, got %s", receivedMethod)
 	}
 }

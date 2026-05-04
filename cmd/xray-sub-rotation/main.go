@@ -81,7 +81,7 @@ func main() {
 	}
 
 	// Initialize proxy
-	p := proxy.New(s, cfg.Strategy, cfg.HealthCheck.HealthyCount, cfg.HealthCheck.Timeout)
+	p := proxy.New(s, cfg.Strategy, cfg.HealthCheck.Timeout)
 
 	// Start health check
 	var stopChan chan struct{}
