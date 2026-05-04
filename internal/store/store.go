@@ -2,6 +2,7 @@ package store
 
 import (
 	"encoding/json"
+	"math/rand"
 	"os"
 	"sync"
 	"time"
@@ -30,20 +31,27 @@ type Store struct {
 	endpoints        map[string]Endpoint
 	subIdToEndpoints map[string][]string
 	health           map[string]HealthInfo
+	strategy         string
+	lastServed       map[string]string // subId -> last served endpoint ID
 }
 
-func NewStore() *Store {
+func NewStore(strategy string) *Store {
 	return &Store{
 		endpoints:        make(map[string]Endpoint),
 		subIdToEndpoints: make(map[string][]string),
 		health:           make(map[string]HealthInfo),
+		strategy:         strategy,
+		lastServed:       make(map[string]string),
 	}
 }
 
 func (s *Store) AddEndpoint(url, subId, name string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.addEndpointLocked(url, subId, name)
+}
 
+func (s *Store) addEndpointLocked(url, subId, name string) {
 	id := url
 	e := Endpoint{
 		ID:    id,
@@ -104,43 +112,55 @@ func (s *Store) Reload(entries []sublist.Entry) {
 	s.endpoints = make(map[string]Endpoint)
 	s.subIdToEndpoints = make(map[string][]string)
 	s.health = make(map[string]HealthInfo)
+	s.lastServed = make(map[string]string)
 
 	for _, e := range entries {
-		s.AddEndpoint(e.URL, e.SubId, e.Name)
+		s.addEndpointLocked(e.URL, e.SubId, e.Name)
 	}
 }
 
-// GetBestEndpoint returns the best (healthy, lowest latency) endpoint for a subId.
-// If all are down, returns the most recently checked.
+// GetBestEndpoint returns the best endpoint for a subId based on the configured strategy.
+// Strategies: "fastest" (lowest latency), "random" (random, avoids repeating last),
+// "first" (first healthy). If all are down, returns the most recently checked.
 func (s *Store) GetBestEndpoint(subId string) *Endpoint {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
 	ids := s.subIdToEndpoints[subId]
 	if len(ids) == 0 {
 		return nil
 	}
 
-	var best *Endpoint
+	// Collect healthy endpoints
+	healthy := make([]string, 0, len(ids))
 	for _, id := range ids {
 		info, ok := s.health[id]
-		if !ok {
-			continue
-		}
-		if !info.Healthy {
-			continue
-		}
-		ep := s.endpoints[id]
-		if best == nil || info.LatencyMS < s.health[best.ID].LatencyMS {
-			best = &ep
+		if ok && info.Healthy {
+			healthy = append(healthy, id)
 		}
 	}
 
-	if best != nil {
-		return best
+	var chosen *Endpoint
+
+	if len(healthy) > 0 {
+		switch s.strategy {
+		case "random":
+			chosen = s.pickRandom(healthy, subId)
+		case "first":
+			ep := s.endpoints[healthy[0]]
+			chosen = &ep
+		default: // "fastest"
+			chosen = s.pickFastest(healthy)
+		}
+	}
+
+	if chosen != nil {
+		s.lastServed[subId] = chosen.ID
+		return chosen
 	}
 
 	// All unhealthy — return the most recently checked
+	var best *Endpoint
 	for _, id := range ids {
 		info, ok := s.health[id]
 		if !ok {
@@ -152,7 +172,46 @@ func (s *Store) GetBestEndpoint(subId string) *Endpoint {
 		}
 	}
 
+	if best != nil {
+		s.lastServed[subId] = best.ID
+	}
 	return best
+}
+
+// pickFastest returns the healthy endpoint with the lowest latency.
+func (s *Store) pickFastest(healthy []string) *Endpoint {
+	var best *Endpoint
+	for _, id := range healthy {
+		ep := s.endpoints[id]
+		if best == nil || s.health[id].LatencyMS < s.health[best.ID].LatencyMS {
+			best = &ep
+		}
+	}
+	return best
+}
+
+// pickRandom returns a random healthy endpoint, avoiding the one last served
+// for this subId when possible.
+func (s *Store) pickRandom(healthy []string, subId string) *Endpoint {
+	lastID := s.lastServed[subId]
+
+	// If more than one option, exclude the last served
+	candidates := healthy
+	if len(healthy) > 1 && lastID != "" {
+		candidates = make([]string, 0, len(healthy)-1)
+		for _, id := range healthy {
+			if id != lastID {
+				candidates = append(candidates, id)
+			}
+		}
+		if len(candidates) == 0 {
+			candidates = healthy
+		}
+	}
+
+	id := candidates[rand.Intn(len(candidates))]
+	ep := s.endpoints[id]
+	return &ep
 }
 
 // Persist writes the health state to a JSON file.

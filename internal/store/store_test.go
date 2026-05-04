@@ -6,7 +6,7 @@ import (
 )
 
 func TestAddAndGetEndpoints(t *testing.T) {
-	s := NewStore()
+	s := NewStore("fastest")
 	s.AddEndpoint("https://xray1.example.com/sub/abc", "abc123", "US-East")
 	s.AddEndpoint("https://xray2.example.com/sub/abc", "abc123", "EU-West")
 
@@ -17,7 +17,7 @@ func TestAddAndGetEndpoints(t *testing.T) {
 }
 
 func TestGetUrlsForSubId(t *testing.T) {
-	s := NewStore()
+	s := NewStore("fastest")
 	s.AddEndpoint("https://xray1.example.com/sub/abc", "abc123", "US-East")
 	s.AddEndpoint("https://xray2.example.com/sub/abc", "abc123", "EU-West")
 
@@ -28,7 +28,7 @@ func TestGetUrlsForSubId(t *testing.T) {
 }
 
 func TestGetUrlsForNonexistentSubId(t *testing.T) {
-	s := NewStore()
+	s := NewStore("fastest")
 	s.AddEndpoint("https://xray1.example.com/sub/abc", "abc123", "US-East")
 
 	urls := s.GetUrlsForSubId("nonexistent")
@@ -38,7 +38,7 @@ func TestGetUrlsForNonexistentSubId(t *testing.T) {
 }
 
 func TestRecordAndReadHealth(t *testing.T) {
-	s := NewStore()
+	s := NewStore("fastest")
 	s.AddEndpoint("https://xray1.example.com/sub/abc", "abc123", "US-East")
 
 	s.RecordHealth("https://xray1.example.com/sub/abc", HealthInfo{
@@ -60,7 +60,7 @@ func TestRecordAndReadHealth(t *testing.T) {
 }
 
 func TestGetBestEndpoint(t *testing.T) {
-	s := NewStore()
+	s := NewStore("fastest")
 	s.AddEndpoint("https://xray1.example.com/sub/abc", "abc123", "fast")
 	s.AddEndpoint("https://xray2.example.com/sub/abc", "abc123", "slow")
 
@@ -85,7 +85,7 @@ func TestGetBestEndpoint(t *testing.T) {
 }
 
 func TestGetBestEndpointWhenDown(t *testing.T) {
-	s := NewStore()
+	s := NewStore("fastest")
 	s.AddEndpoint("https://xray1.example.com/sub/abc", "abc123", "fast")
 	s.AddEndpoint("https://xray2.example.com/sub/abc", "abc123", "slow")
 
@@ -110,7 +110,7 @@ func TestGetBestEndpointWhenDown(t *testing.T) {
 }
 
 func TestGetBestEndpointWhenAllDown(t *testing.T) {
-	s := NewStore()
+	s := NewStore("fastest")
 	s.AddEndpoint("https://xray1.example.com/sub/abc", "abc123", "server1")
 	s.AddEndpoint("https://xray2.example.com/sub/abc", "abc123", "server2")
 
@@ -128,5 +128,84 @@ func TestGetBestEndpointWhenAllDown(t *testing.T) {
 	best := s.GetBestEndpoint("abc123")
 	if best == nil {
 		t.Error("Expected a best endpoint even when all are down")
+	}
+}
+
+func TestRandomStrategyAvoidRepeat(t *testing.T) {
+	s := NewStore("random")
+	s.AddEndpoint("https://xray1.example.com/sub/abc", "abc123", "server1")
+	s.AddEndpoint("https://xray2.example.com/sub/abc", "abc123", "server2")
+
+	s.RecordHealth("https://xray1.example.com/sub/abc", HealthInfo{
+		Healthy:     true,
+		LatencyMS:   50,
+		LastChecked: time.Now(),
+	})
+	s.RecordHealth("https://xray2.example.com/sub/abc", HealthInfo{
+		Healthy:     true,
+		LatencyMS:   50,
+		LastChecked: time.Now(),
+	})
+
+	// With 2 healthy endpoints and random+anti-repeat, calling twice
+	// should always return different endpoints
+	first := s.GetBestEndpoint("abc123")
+	if first == nil {
+		t.Fatal("Expected endpoint, got nil")
+	}
+
+	second := s.GetBestEndpoint("abc123")
+	if second == nil {
+		t.Fatal("Expected endpoint, got nil")
+	}
+
+	if first.ID == second.ID {
+		t.Errorf("Random strategy should avoid repeating: got %q twice", first.Name)
+	}
+}
+
+func TestRandomStrategySingleEndpoint(t *testing.T) {
+	s := NewStore("random")
+	s.AddEndpoint("https://xray1.example.com/sub/abc", "abc123", "server1")
+
+	s.RecordHealth("https://xray1.example.com/sub/abc", HealthInfo{
+		Healthy:     true,
+		LatencyMS:   50,
+		LastChecked: time.Now(),
+	})
+
+	// With only 1 endpoint, it should still return it (no panic)
+	ep := s.GetBestEndpoint("abc123")
+	if ep == nil {
+		t.Fatal("Expected endpoint, got nil")
+	}
+	if ep.Name != "server1" {
+		t.Errorf("Got %q, want %q", ep.Name, "server1")
+	}
+}
+
+func TestFirstStrategy(t *testing.T) {
+	s := NewStore("first")
+	s.AddEndpoint("https://xray1.example.com/sub/abc", "abc123", "server1")
+	s.AddEndpoint("https://xray2.example.com/sub/abc", "abc123", "server2")
+
+	s.RecordHealth("https://xray1.example.com/sub/abc", HealthInfo{
+		Healthy:     true,
+		LatencyMS:   200,
+		LastChecked: time.Now(),
+	})
+	s.RecordHealth("https://xray2.example.com/sub/abc", HealthInfo{
+		Healthy:     true,
+		LatencyMS:   50,
+		LastChecked: time.Now(),
+	})
+
+	// "first" always returns the first healthy, regardless of latency
+	ep := s.GetBestEndpoint("abc123")
+	if ep == nil {
+		t.Fatal("Expected endpoint, got nil")
+	}
+	if ep.Name != "server1" {
+		t.Errorf("First strategy got %q, want %q", ep.Name, "server1")
 	}
 }

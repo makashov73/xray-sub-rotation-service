@@ -41,7 +41,7 @@ func main() {
 	}
 
 	// Initialize store
-	s := store.NewStore()
+	s := store.NewStore(cfg.Strategy)
 
 	// Load subscription list
 	entries, err := sublist.Parse(cfg.SublistFile)

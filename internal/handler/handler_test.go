@@ -13,7 +13,7 @@ import (
 )
 
 func TestSubscriptionHandler(t *testing.T) {
-	s := store.NewStore()
+	s := store.NewStore("fastest")
 
 	// Mock response from 3x-ui
 	mockResponse := "vless://test1\ntrojan://test2\n"
@@ -46,7 +46,7 @@ func TestSubscriptionHandler(t *testing.T) {
 }
 
 func TestSubscriptionNotFound(t *testing.T) {
-	s := store.NewStore()
+	s := store.NewStore("fastest")
 	p := proxy.New(s, "fastest", 2, 5*time.Second)
 	h := New(s, p, nil)
 
@@ -61,7 +61,7 @@ func TestSubscriptionNotFound(t *testing.T) {
 }
 
 func TestHealthCheckEndpoint(t *testing.T) {
-	s := store.NewStore()
+	s := store.NewStore("fastest")
 	p := proxy.New(s, "fastest", 2, 5*time.Second)
 	h := New(s, p, nil)
 

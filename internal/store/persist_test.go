@@ -11,7 +11,7 @@ func TestPersistAndLoad(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "health.json")
 
-	s := NewStore()
+	s := NewStore("fastest")
 	s.AddEndpoint("https://server1.example.com/sub/abc", "abc123", "S1")
 	s.AddEndpoint("https://server2.example.com/sub/abc", "abc123", "S2")
 
@@ -32,7 +32,7 @@ func TestPersistAndLoad(t *testing.T) {
 	}
 
 	// Create new store and load
-	s2 := NewStore()
+	s2 := NewStore("fastest")
 	if err := s2.LoadFromDisk(path); err != nil {
 		t.Fatalf("LoadFromDisk failed: %v", err)
 	}
@@ -52,7 +52,7 @@ func TestPersistEmptyStore(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "health.json")
 
-	s := NewStore()
+	s := NewStore("fastest")
 	if err := s.Persist(path); err != nil {
 		t.Fatalf("Persist failed: %v", err)
 	}
@@ -68,7 +68,7 @@ func TestPersistEmptyStore(t *testing.T) {
 }
 
 func TestLoadFromDiskMissingFile(t *testing.T) {
-	s := NewStore()
+	s := NewStore("fastest")
 	err := s.LoadFromDisk("/nonexistent/health.json")
 	if err == nil {
 		t.Error("Expected error for missing file")

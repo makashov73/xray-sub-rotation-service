@@ -10,7 +10,7 @@ import (
 )
 
 func TestCheckEndpointSuccess(t *testing.T) {
-	s := store.NewStore()
+	s := store.NewStore("fastest")
 	s.AddEndpoint("http://test.example/sub/abc", "abc123", "test")
 
 	p := New(s, "fastest", 2, 5*time.Second)
@@ -37,7 +37,7 @@ func TestCheckEndpointSuccess(t *testing.T) {
 }
 
 func TestCheckEndpointFailure(t *testing.T) {
-	s := store.NewStore()
+	s := store.NewStore("fastest")
 	s.AddEndpoint("http://nonexistent.invalid:99999/sub/abc", "abc123", "test")
 
 	p := New(s, "fastest", 2, 5*time.Second)
