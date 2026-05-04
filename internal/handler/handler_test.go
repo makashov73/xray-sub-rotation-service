@@ -25,7 +25,7 @@ func TestSubscriptionHandler(t *testing.T) {
 
 	s.AddEndpoint(srv.URL+"/sub/abc123", "abc123", "test-server")
 
-	p := proxy.New(s, "fastest", 2, 5*time.Second)
+	p := proxy.New(s, "fastest", 5*time.Second)
 	h := New(s, p, nil)
 
 	// Request subscription for abc123
@@ -46,7 +46,7 @@ func TestSubscriptionHandler(t *testing.T) {
 
 func TestSubscriptionNotFound(t *testing.T) {
 	s := store.NewStore("fastest")
-	p := proxy.New(s, "fastest", 2, 5*time.Second)
+	p := proxy.New(s, "fastest", 5*time.Second)
 	h := New(s, p, nil)
 
 	req := httptest.NewRequest("GET", "/subrouter/nonexistent-uuid", nil)
@@ -76,7 +76,7 @@ func TestHealthCheckEndpoint(t *testing.T) {
 		LastChecked: time.Now(),
 	})
 
-	p := proxy.New(s, "fastest", 2, 5*time.Second)
+	p := proxy.New(s, "fastest", 5*time.Second)
 	h := New(s, p, nil)
 
 	req := httptest.NewRequest("GET", "/health", nil)
@@ -99,7 +99,7 @@ func TestHealthCheckEndpoint(t *testing.T) {
 
 func TestHealthCheckEndpointEmpty(t *testing.T) {
 	s := store.NewStore("fastest")
-	p := proxy.New(s, "fastest", 2, 5*time.Second)
+	p := proxy.New(s, "fastest", 5*time.Second)
 	h := New(s, p, nil)
 
 	req := httptest.NewRequest("GET", "/health", nil)

@@ -42,7 +42,7 @@ type HealthCheckConfig struct {
 	Enabled      bool          `yaml:"enabled"`
 	Interval     time.Duration `yaml:"interval"`
 	Timeout      time.Duration `yaml:"timeout"`
-	HealthyCount int           `yaml:"healthy_count"`
+	HealthyCount int           `yaml:"healthy_count"` // deprecated — parsed but not used, kept for config compatibility
 	PersistPath  string        `yaml:"persist_path"`
 }
 

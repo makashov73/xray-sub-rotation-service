@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"io"
 	"log/slog"
 	"net/http"
 	"time"
@@ -10,20 +11,18 @@ import (
 
 // Proxy manages health checking of 3x-ui endpoints.
 type Proxy struct {
-	store     *store.Store
-	strategy  string
-	healthyAt int
-	timeout   time.Duration
-	client    *http.Client
+	store    *store.Store
+	strategy string
+	timeout  time.Duration
+	client   *http.Client
 }
 
 // New creates a new Proxy.
-func New(s *store.Store, strategy string, healthyAt int, timeout time.Duration) *Proxy {
+func New(s *store.Store, strategy string, timeout time.Duration) *Proxy {
 	return &Proxy{
-		store:     s,
-		strategy:  strategy,
-		healthyAt: healthyAt,
-		timeout:   timeout,
+		store:    s,
+		strategy: strategy,
+		timeout:  timeout,
 		client: &http.Client{
 			Timeout: timeout,
 		},
@@ -59,7 +58,7 @@ func (p *Proxy) checkAll() {
 func (p *Proxy) checkEndpoint(ep store.Endpoint) {
 	start := time.Now()
 
-	req, err := http.NewRequest("HEAD", ep.URL, nil)
+	req, err := http.NewRequest("GET", ep.URL, nil)
 	if err != nil {
 		slog.Warn("Failed to create health check request", "endpoint", ep.URL, "error", err)
 		return
@@ -77,9 +76,11 @@ func (p *Proxy) checkEndpoint(ep store.Endpoint) {
 		})
 		return
 	}
-	defer resp.Body.Close()
 
 	healthy := resp.StatusCode >= 200 && resp.StatusCode < 300
+
+	io.Copy(io.Discard, io.LimitReader(resp.Body, 64*1024))
+	resp.Body.Close()
 
 	p.store.RecordHealth(ep.ID, store.HealthInfo{
 		Healthy:     healthy,
