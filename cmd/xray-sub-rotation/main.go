@@ -56,6 +56,28 @@ func main() {
 
 	slog.Info("Loaded subscription list", "endpoints", len(entries))
 
+	// Log unique subscription URLs
+	seen := make(map[string]bool)
+	if cfg.TLS.CertFile != "" && cfg.TLS.KeyFile != "" {
+		for _, e := range entries {
+			if seen[e.SubId] {
+				continue
+			}
+			seen[e.SubId] = true
+			url := "https://" + cfg.Server.Host + ":" + strconv.Itoa(cfg.Server.Port) + "/subrouter/" + e.SubId
+			slog.Info("Subscription URL", "url", url)
+		}
+	} else {
+		for _, e := range entries {
+			if seen[e.SubId] {
+				continue
+			}
+			seen[e.SubId] = true
+			url := "http://" + cfg.Server.Host + ":" + strconv.Itoa(cfg.Server.Port) + "/subrouter/" + e.SubId
+			slog.Info("Subscription URL", "url", url)
+		}
+	}
+
 	// Load persisted health state
 	if healthPath := cfg.HealthCheck.PersistPath; healthPath != "" {
 		if err := s.LoadFromDisk(healthPath); err != nil {
