@@ -209,3 +209,83 @@ func TestFirstStrategy(t *testing.T) {
 		t.Errorf("First strategy got %q, want %q", ep.Name, "server1")
 	}
 }
+
+func TestHealthReport(t *testing.T) {
+	s := NewStore("fastest")
+
+	// subId "abc123" — two servers
+	s.AddEndpoint("https://xray1.example.com/sub/abc", "abc123", "US-East")
+	s.AddEndpoint("https://xray2.example.com/sub/abc", "abc123", "EU-West")
+
+	// subId "def456" — one server
+	s.AddEndpoint("https://xray3.example.com/sub/def", "def456", "Asia-Pacific")
+
+	s.RecordHealth("https://xray1.example.com/sub/abc", HealthInfo{
+		Healthy:     true,
+		LatencyMS:   42,
+		LastChecked: time.Now(),
+	})
+	s.RecordHealth("https://xray2.example.com/sub/abc", HealthInfo{
+		Healthy:     false,
+		LatencyMS:   0,
+		LastChecked: time.Now(),
+	})
+	s.RecordHealth("https://xray3.example.com/sub/def", HealthInfo{
+		Healthy:     true,
+		LatencyMS:   15,
+		LastChecked: time.Now(),
+	})
+
+	report := s.HealthReport()
+
+	// Verify subId "abc123"
+	abc, ok := report["abc123"]
+	if !ok {
+		t.Fatal("Missing subId abc123 in report")
+	}
+	if len(abc) != 2 {
+		t.Fatalf("Expected 2 servers for abc123, got %d", len(abc))
+	}
+	if !abc["US-East"].Healthy {
+		t.Error("US-East should be healthy")
+	}
+	if abc["US-East"].LatencyMS != 42 {
+		t.Errorf("US-East latency = %f, want 42", abc["US-East"].LatencyMS)
+	}
+	if abc["EU-West"].Healthy {
+		t.Error("EU-West should be unhealthy")
+	}
+	if abc["EU-West"].LatencyMS != 0 {
+		t.Errorf("EU-West latency = %f, want 0", abc["EU-West"].LatencyMS)
+	}
+
+	// Verify subId "def456"
+	def, ok := report["def456"]
+	if !ok {
+		t.Fatal("Missing subId def456 in report")
+	}
+	if !def["Asia-Pacific"].Healthy {
+		t.Error("Asia-Pacific should be healthy")
+	}
+	if def["Asia-Pacific"].LatencyMS != 15 {
+		t.Errorf("Asia-Pacific latency = %f, want 15", def["Asia-Pacific"].LatencyMS)
+	}
+}
+
+func TestHealthReportEmptyStore(t *testing.T) {
+	s := NewStore("fastest")
+	report := s.HealthReport()
+	if len(report) != 0 {
+		t.Errorf("Expected empty report, got %d subIds", len(report))
+	}
+}
+
+func TestHealthReportUnknownSubId(t *testing.T) {
+	s := NewStore("fastest")
+	s.AddEndpoint("https://xray1.example.com/sub/abc", "abc123", "US-East")
+
+	report := s.HealthReport()
+	if _, ok := report["nonexistent"]; ok {
+		t.Error("Unexpected subId in report")
+	}
+}

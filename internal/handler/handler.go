@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"encoding/json"
 	"io"
 	"net/http"
 	"strings"
@@ -100,6 +101,7 @@ func (h *Handler) subscriptionHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) healthHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte("ok"))
+	json.NewEncoder(w).Encode(h.store.HealthReport())
 }

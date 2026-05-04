@@ -257,3 +257,41 @@ func (s *Store) LoadFromDisk(path string) error {
 	}
 	return nil
 }
+
+// ServerHealth contains health status for a single server.
+type ServerHealth struct {
+	Healthy   bool    `json:"healthy"`
+	LatencyMS float64 `json:"latency_ms"`
+}
+
+// HealthReport returns a map of subId -> serverName -> health info.
+// This is used by the /health endpoint to report per-subscription, per-server status.
+func (s *Store) HealthReport() map[string]map[string]ServerHealth {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	report := make(map[string]map[string]ServerHealth)
+
+	for subId, ids := range s.subIdToEndpoints {
+		subReport := make(map[string]ServerHealth, len(ids))
+		for _, id := range ids {
+			ep, ok := s.endpoints[id]
+			if !ok {
+				continue
+			}
+			info, ok := s.health[id]
+			if !ok {
+				continue
+			}
+			subReport[ep.Name] = ServerHealth{
+				Healthy:   info.Healthy,
+				LatencyMS: info.LatencyMS,
+			}
+		}
+		if len(subReport) > 0 {
+			report[subId] = subReport
+		}
+	}
+
+	return report
+}
