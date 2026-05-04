@@ -234,8 +234,8 @@ tar -xzf "${TMPDIR}/${ASSET_NAME}.tar.gz" -C "$TMPDIR"
 # Ensure install directory exists
 mkdir -p "$INSTALL_DIR"
 
-# Copy binary
-cp "${TMPDIR}/${BINARY_NAME}" "${INSTALL_DIR}/${BINARY_NAME}"
+# Copy binary (inside archive the name includes version/os/arch)
+cp "${TMPDIR}/${ASSET_NAME}" "${INSTALL_DIR}/${BINARY_NAME}"
 chmod +x "${INSTALL_DIR}/${BINARY_NAME}"
 echo "Installed to ${INSTALL_DIR}/${BINARY_NAME}"
 
