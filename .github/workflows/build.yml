@@ -43,14 +43,25 @@ jobs:
               -o "dist/${NAME}" \
               ./cmd/xray-sub-rotation/
             if [ "$OS" = "windows" ]; then
-              (cd dist && zip "${NAME}.zip" "${NAME}")
+              (cd dist && zip "${NAME}.zip" "${NAME}" && rm "${NAME}")
             else
-              (cd dist && tar czf ../"${NAME}".tar.gz "${NAME}")
+              (cd dist && tar czf "${NAME}.tar.gz" "${NAME}" && rm "${NAME}")
             fi
           done
           ls -lh dist/
 
-      - name: Create Release
+      - name: Copy static assets
+        run: |
+          VERSION=${{ github.event.inputs.version || github.ref_name }}
+          cp config.yaml dist/config.yaml
+          cp install.sh dist/install.sh
+
+      - name: Generate checksums
+        run: |
+          VERSION=${{ github.event.inputs.version || github.ref_name }}
+          (cd dist && sha256sum * > "checksums-${VERSION}.txt")
+
+      - name: Create Release (tag push)
         uses: softprops/action-gh-release@v2
         if: startsWith(github.ref, 'refs/tags/')
         with:

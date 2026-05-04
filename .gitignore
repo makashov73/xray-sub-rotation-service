@@ -8,6 +8,9 @@ xray-sub-rotation-race
 *.test
 *.out
 
+# Release artifacts
+dist/
+
 # IDE
 .idea/
 .vscode/
