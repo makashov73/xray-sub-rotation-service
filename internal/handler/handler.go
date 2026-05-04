@@ -125,11 +125,18 @@ func (h *Handler) subscriptionHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	defer resp.Body.Close()
 
+	// Read subscription content with size limit
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
+	if err != nil {
+		http.Error(w, "failed to read subscription", http.StatusInternalServerError)
+		return
+	}
+
 	// Forward the response with size limit
 	w.Header().Set("Content-Type", resp.Header.Get("Content-Type"))
 	w.WriteHeader(resp.StatusCode)
 	store.RequestCounter().WithLabelValues(fmt.Sprintf("%d", resp.StatusCode), subId).Inc()
-	io.Copy(w, io.LimitReader(resp.Body, 10*1024*1024))
+	w.Write(ProcessSubscription(body))
 }
 
 func (h *Handler) healthHandler(w http.ResponseWriter, r *http.Request) {

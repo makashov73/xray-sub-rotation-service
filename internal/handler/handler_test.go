@@ -182,3 +182,45 @@ func TestRequestID(t *testing.T) {
 		t.Errorf("X-Request-Id = %q (len %d), want 32 hex characters", requestID, len(requestID))
 	}
 }
+
+func TestProcessSubscription(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{
+			name:  "vless prefix preserved",
+			input: "vless://uuid@host:port#tag\n",
+			want:  "vless://uuid@host:port#tag\n",
+		},
+		{
+			name:  "multiple protocols preserved",
+			input: "vless://uuid@host:port\n# comment\ntrojan://pass@host:443\n",
+			want:  "vless://uuid@host:port\ntrojan://pass@host:443\n",
+		},
+		{
+			name:  "empty lines removed",
+			input: "vless://uuid@host:port\n\n\n",
+			want:  "vless://uuid@host:port\n",
+		},
+		{
+			name:  "vmess prefix preserved",
+			input: "vmess://base64@host:443\n",
+			want:  "vmess://base64@host:443\n",
+		},
+		{
+			name:  "ss prefix preserved",
+			input: "ss://YWVzLTEyOC1nY206cGFzcw==@host:443#name\n",
+			want:  "ss://YWVzLTEyOC1nY206cGFzcw==@host:443#name\n",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := ProcessSubscription([]byte(tt.input))
+			if string(got) != tt.want {
+				t.Errorf("ProcessSubscription() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
